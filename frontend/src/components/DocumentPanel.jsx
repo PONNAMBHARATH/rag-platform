@@ -7,12 +7,35 @@ import {
 } from "../../services/document.service";
 
 import DocumentFileIcon from "./DocumentFileIcon";
+import UploadDocumentDialog from "./UploadDocumentDialog";
 
 const DocumentPanel = () => {
     const [documents, setDocuments] = useState([]);
     const [loading, setLoading] = useState(true);
     const fileInputRef = useRef(null);
     const [uploading, setUploading] = useState(false);
+    const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+
+    const handleUpload = async (file) => {
+        try {
+            setUploading(true);
+
+            await uploadDocument(file);
+
+            await loadDocuments();
+
+            setUploadDialogOpen(false);
+        } catch (error) {
+            console.error(
+                "Failed to upload document:",
+                error
+            );
+
+            alert("Failed to upload document.");
+        } finally {
+            setUploading(false);
+        }
+    };
 
     const loadDocuments = async () => {
         try {
@@ -31,31 +54,6 @@ const DocumentPanel = () => {
         }
     };
 
-    const handleUpload = async (event) => {
-        const file = event.target.files?.[0];
-
-        if (!file) {
-            return;
-        }
-
-        try {
-            setUploading(true);
-
-            await uploadDocument(file);
-
-            await loadDocuments();
-        } catch (error) {
-            console.error(
-                "Failed to upload document:",
-                error
-            );
-
-            alert("Failed to upload document.");
-        } finally {
-            setUploading(false);
-            event.target.value = "";
-        }
-    };
 
     useEffect(() => {
         loadDocuments();
@@ -136,13 +134,11 @@ const DocumentPanel = () => {
 
                     <button
                         type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={uploading}
-                        className="flex items-center gap-2 rounded-lg bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() => setUploadDialogOpen(true)}
+                        className="flex items-center gap-2 rounded-lg bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
                     >
                         <Upload size={16} />
-
-                        {uploading ? "Uploading..." : "Upload"}
+                        Upload
                     </button>
                 </div>
             </div>
@@ -207,6 +203,12 @@ const DocumentPanel = () => {
                     </div>
                 )}
             </div>
+            <UploadDocumentDialog
+                isOpen={uploadDialogOpen}
+                onClose={() => setUploadDialogOpen(false)}
+                onUpload={handleUpload}
+                uploading={uploading}
+            />
         </div>
     );
 };
