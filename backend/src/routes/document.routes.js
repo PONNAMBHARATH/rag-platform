@@ -6,13 +6,14 @@ const {
     getDocument,
     deleteDocument,
 } = require("../services/document/document-management.service");
-const { extractDocumentText } = require("../services/document/document.service");
-const { cleanText } = require("../services/document/text-cleaning.service");
-const { chunkText } = require("../services/document/chunking.service");
-const { generateEmbedding } = require("../services/embedding/embedding.service");
-const { upsertChunk } = require("../services/vector/qdrant.service");
+const {
+    processDocument,
+} = require("../services/document/document-processing.service");
+const {
+    uploadDocumentFile,
+} = require("../services/storage/storage.service");
 const upload = require("../middleware/upload.middleware");
-const crypto = require("crypto");
+
 
 const router = express.Router();
 
@@ -40,6 +41,9 @@ router.post(
     authMiddleware,
     handleUpload,
     async (req, res) => {
+        let documentId = null;
+        let userSupabase = null;
+
         try {
             if (!req.file) {
                 return res.status(400).json({
@@ -48,14 +52,14 @@ router.post(
                 });
             }
 
-            const extractedDocument = await extractDocumentText(req.file);
-            const cleanedText = cleanText(extractedDocument.text);
-            const chunks = chunkText(cleanedText);
+            // ---------------------------------------
+            // 1. Create authenticated Supabase client
+            // ---------------------------------------
 
             const authHeader = req.headers.authorization;
             const token = authHeader.replace("Bearer ", "");
 
-            const userSupabase = createClient(
+            userSupabase = createClient(
                 process.env.SUPABASE_URL,
                 process.env.SUPABASE_PUBLISHABLE_KEY,
                 {
@@ -67,6 +71,10 @@ router.post(
                 }
             );
 
+            // ---------------------------------------
+            // 2. Create document record
+            // ---------------------------------------
+
             const { data, error } = await userSupabase
                 .from("documents")
                 .insert({
@@ -74,13 +82,17 @@ router.post(
                     file_name: req.file.originalname,
                     file_type: req.file.mimetype,
                     file_size: req.file.size,
-                    status: "uploaded",
+                    status: "processing",
+                    processing_stage: "extracting",
                 })
                 .select()
                 .single();
 
             if (error) {
-                console.error("Document metadata error:", error);
+                console.error(
+                    "Document metadata error:",
+                    error
+                );
 
                 return res.status(500).json({
                     success: false,
@@ -88,41 +100,72 @@ router.post(
                 });
             }
 
-            for (const chunk of chunks) {
-                console.log(`Embedding chunk ${chunk.chunkIndex}...`);
+            documentId = data.id;
 
-                const embedding = await generateEmbedding(chunk.text);
+            const storagePath = await uploadDocumentFile({
+                file: req.file,
+                userId: req.user.id,
+                documentId,
+                token,
+            });
 
-                const pointId = crypto.randomUUID();
+            const { error: storagePathError } = await userSupabase
+                .from("documents")
+                .update({
+                    storage_path: storagePath,
+                })
+                .eq("id", documentId)
+                .eq("user_id", req.user.id);
 
-                await upsertChunk({
-                    id: pointId,
-                    embedding,
-                    payload: {
-                        userId: req.user.id,
-                        documentId: data.id,
-                        fileName: req.file.originalname,
-                        chunkIndex: chunk.chunkIndex,
-                        text: chunk.text,
-                        visibility: "private",
-                    },
-                });
-
-                console.log(
-                    `Chunk ${chunk.chunkIndex} inserted into Qdrant`
+            if (storagePathError) {
+                console.error(
+                    "Failed to save storage path:",
+                    storagePathError
                 );
+
+                throw storagePathError;
             }
 
-            // return;
-            res.json({
+            await processDocument({
+                documentId,
+                userId: req.user.id,
+                token,
+            });
+
+            return res.json({
                 success: true,
-                message: "File uploaded and metadata saved",
-                document: data,
+                message: "File uploaded and indexed successfully",
+                document: {
+                    ...data,
+                    status: "ready",
+                    processing_stage: null,
+                    storage_path: storagePath,
+                },
             });
         } catch (error) {
             console.error("Upload error:", error);
 
-            res.status(500).json({
+            // ---------------------------------------
+            // Mark document as failed
+            // ---------------------------------------
+
+            if (documentId && userSupabase) {
+                try {
+                    await userSupabase
+                        .from("documents")
+                        .update({
+                            status: "failed",
+                        })
+                        .eq("id", documentId);
+                } catch (statusError) {
+                    console.error(
+                        "Failed to update document status:",
+                        statusError
+                    );
+                }
+            }
+
+            return res.status(500).json({
                 success: false,
                 message: "Upload failed",
             });
@@ -220,6 +263,37 @@ router.delete("/:documentId", authMiddleware, async (req, res) => {
     }
 });
 
-module.exports = router;
+router.get(
+    "/:documentId/download-test",
+    authMiddleware,
+    async (req, res) => {
+        try {
+            const authHeader = req.headers.authorization;
+            const token = authHeader.replace("Bearer ", "");
+
+            const result = await processDocument({
+                documentId: req.params.documentId,
+                userId: req.user.id,
+                token,
+            });
+            return res.json({
+                success: true,
+                documentId: result.document.id,
+                fileName: result.document.file_name,
+                chunkCount: result.chunks.length,
+            });
+        } catch (error) {
+            console.error(
+                "Document processing test error:",
+                error
+            );
+
+            return res.status(500).json({
+                success: false,
+                message: error.message,
+            });
+        }
+    }
+);
 
 module.exports = router;
