@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Trash2, Upload } from "lucide-react";
 import {
     getDocuments,
@@ -12,9 +12,37 @@ import UploadDocumentDialog from "./UploadDocumentDialog";
 const DocumentPanel = () => {
     const [documents, setDocuments] = useState([]);
     const [loading, setLoading] = useState(true);
-    const fileInputRef = useRef(null);
     const [uploading, setUploading] = useState(false);
     const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+    const [isDragging, setIsDragging] = useState(false);
+    const [droppedFile, setDroppedFile] = useState(null);
+
+    const handleDragOver = (event) => {
+        event.preventDefault();
+        setIsDragging(true);
+    };
+
+    const handleDragLeave = (event) => {
+        event.preventDefault();
+
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+            setIsDragging(false);
+        }
+    };
+
+    const handleDrop = (event) => {
+        event.preventDefault();
+        setIsDragging(false);
+
+        const file = event.dataTransfer.files?.[0];
+
+        if (!file) {
+            return;
+        }
+
+        setDroppedFile(file);
+        setUploadDialogOpen(true);
+    };
 
     const handleUpload = async (file) => {
         try {
@@ -25,6 +53,7 @@ const DocumentPanel = () => {
             await loadDocuments();
 
             setUploadDialogOpen(false);
+            setDroppedFile(null);
         } catch (error) {
             console.error(
                 "Failed to upload document:",
@@ -37,9 +66,11 @@ const DocumentPanel = () => {
         }
     };
 
-    const loadDocuments = async () => {
+    const loadDocuments = async (showLoading = true) => {
         try {
-            setLoading(true);
+            if (showLoading) {
+                setLoading(true);
+            }
 
             const result = await getDocuments();
 
@@ -50,7 +81,9 @@ const DocumentPanel = () => {
                 error
             );
         } finally {
-            setLoading(false);
+            if (showLoading) {
+                setLoading(false);
+            }
         }
     };
 
@@ -58,6 +91,24 @@ const DocumentPanel = () => {
     useEffect(() => {
         loadDocuments();
     }, []);
+
+    useEffect(() => {
+        const hasProcessingDocuments = documents.some(
+            (document) => document.status === "processing"
+        );
+
+        if (!hasProcessingDocuments) {
+            return;
+        }
+
+        const interval = setInterval(() => {
+            loadDocuments(false);
+        }, 3000);
+
+        return () => {
+            clearInterval(interval);
+        };
+    }, [documents]);
 
     const handleDelete = async (documentId) => {
         const confirmed = window.confirm(
@@ -87,6 +138,43 @@ const DocumentPanel = () => {
         }
     };
 
+    const getStatusInfo = (document) => {
+        if (document.status === "ready") {
+            return {
+                label: "Ready",
+                className: "bg-green-50 text-green-700",
+            };
+        }
+
+        if (document.status === "failed") {
+            return {
+                label: "Failed",
+                className: "bg-red-50 text-red-700",
+            };
+        }
+
+        if (document.status === "processing") {
+            const stage = document.processing_stage;
+
+            const stageLabels = {
+                extracting: "Extracting",
+                chunking: "Chunking",
+                embedding: "Embedding",
+                indexing: "Indexing",
+            };
+
+            return {
+                label: stageLabels[stage] || "Processing",
+                className: "bg-yellow-50 text-yellow-700",
+            };
+        }
+
+        return {
+            label: "Unknown",
+            className: "bg-gray-100 text-gray-600",
+        };
+    };
+
     const formatFileSize = (bytes) => {
         if (!bytes) {
             return "0 KB";
@@ -103,14 +191,40 @@ const DocumentPanel = () => {
 
     if (loading) {
         return (
-            <div className="p-6 text-sm text-gray-500">
-                Loading documents...
+            <div
+                className="relative flex h-full flex-col bg-white"
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+            >
+                <div className="p-6 text-sm text-gray-500">
+                    Loading documents...
+                </div>
+                {isDragging && (
+                    <div className="pointer-events-none absolute inset-3 z-10 flex items-center justify-center rounded-xl border-2 border-dashed border-gray-400 bg-white/90">
+                        <p className="text-sm font-medium text-gray-700">
+                            Drop a PDF, DOCX, or TXT file to upload
+                        </p>
+                    </div>
+                )}
             </div>
         );
     }
 
     return (
-        <div className="flex h-full flex-col bg-white">
+        <div
+            className="relative flex h-full flex-col bg-white"
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+        >
+            {isDragging && (
+                <div className="pointer-events-none absolute inset-3 z-10 flex items-center justify-center rounded-xl border-2 border-dashed border-gray-400 bg-white/90">
+                    <p className="text-sm font-medium text-gray-700">
+                        Drop a PDF, DOCX, or TXT file to upload
+                    </p>
+                </div>
+            )}
             {/* Header */}
             <div className="flex shrink-0 items-center justify-between border-b px-6 py-4">
                 <div>
@@ -124,14 +238,6 @@ const DocumentPanel = () => {
                 </div>
 
                 <div>
-                    <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept=".pdf,.docx,.txt"
-                        onChange={handleUpload}
-                        className="hidden"
-                    />
-
                     <button
                         type="button"
                         onClick={() => setUploadDialogOpen(true)}
@@ -172,18 +278,27 @@ const DocumentPanel = () => {
                                     <p className="truncate text-sm font-medium text-gray-900">
                                         {document.file_name}
                                     </p>
+                                    <div className="mt-1 flex items-center gap-2">
+                                        <p className="text-xs text-gray-500">
+                                            {formatFileSize(document.file_size)}
+                                            {" • "}
+                                            {new Date(
+                                                document.created_at
+                                            ).toLocaleDateString()}
+                                        </p>
 
-                                    <p className="mt-1 text-xs text-gray-500">
-                                        {formatFileSize(
-                                            document.file_size
-                                        )}
+                                        {(() => {
+                                            const statusInfo = getStatusInfo(document);
 
-                                        {" • "}
-
-                                        {new Date(
-                                            document.created_at
-                                        ).toLocaleDateString()}
-                                    </p>
+                                            return (
+                                                <span
+                                                    className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${statusInfo.className}`}
+                                                >
+                                                    {statusInfo.label}
+                                                </span>
+                                            );
+                                        })()}
+                                    </div>
                                 </div>
 
                                 <button
@@ -205,7 +320,11 @@ const DocumentPanel = () => {
             </div>
             <UploadDocumentDialog
                 isOpen={uploadDialogOpen}
-                onClose={() => setUploadDialogOpen(false)}
+                initialFile={droppedFile}
+                onClose={() => {
+                    setUploadDialogOpen(false);
+                    setDroppedFile(null);
+                }}
                 onUpload={handleUpload}
                 uploading={uploading}
             />

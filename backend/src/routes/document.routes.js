@@ -126,10 +126,15 @@ router.post(
                 throw storagePathError;
             }
 
-            await processDocument({
+            processDocument({
                 documentId,
                 userId: req.user.id,
                 token,
+            }).catch(async (error) => {
+                console.error(
+                    `Background processing failed for document ${documentId}:`,
+                    error
+                );
             });
 
             return res.json({

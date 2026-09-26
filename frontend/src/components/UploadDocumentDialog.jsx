@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
     FileText,
     Upload,
@@ -14,8 +14,21 @@ const ALLOWED_FILE_TYPES = [
     "text/plain",
 ];
 
+const getFileValidationError = (file) => {
+    if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+        return "Unsupported file type. Please select a PDF, DOCX, or TXT file.";
+    }
+
+    if (file.size > MAX_FILE_SIZE) {
+        return "File is too large. Maximum file size is 10 MB.";
+    }
+
+    return "";
+};
+
 const UploadDocumentDialog = ({
     isOpen,
+    initialFile,
     onClose,
     onUpload,
     uploading,
@@ -23,6 +36,16 @@ const UploadDocumentDialog = ({
     const fileInputRef = useRef(null);
     const [selectedFile, setSelectedFile] = useState(null);
     const [error, setError] = useState("");
+
+    useEffect(() => {
+        if (!isOpen || !initialFile) {
+            return;
+        }
+
+        const validationError = getFileValidationError(initialFile);
+        setError(validationError);
+        setSelectedFile(validationError ? null : initialFile);
+    }, [isOpen, initialFile]);
 
     if (!isOpen) {
         return null;
@@ -35,22 +58,11 @@ const UploadDocumentDialog = ({
             return;
         }
 
-        setError("");
+        const validationError = getFileValidationError(file);
+        setError(validationError);
 
-        if (!ALLOWED_FILE_TYPES.includes(file.type)) {
-            setError(
-                "Unsupported file type. Please select a PDF, DOCX, or TXT file."
-            );
-
-            event.target.value = "";
-            return;
-        }
-
-        if (file.size > MAX_FILE_SIZE) {
-            setError(
-                "File is too large. Maximum file size is 10 MB."
-            );
-
+        if (validationError) {
+            setSelectedFile(null);
             event.target.value = "";
             return;
         }
@@ -64,7 +76,7 @@ const UploadDocumentDialog = ({
 
     const handleClose = () => {
         setSelectedFile(null);
-        setError(""); Ff
+        setError("");
         onClose();
     };
     const handleUpload = async () => {
