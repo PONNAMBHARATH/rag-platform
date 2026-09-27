@@ -1,7 +1,9 @@
 const { Ollama } = require("ollama");
 const { GoogleGenAI } = require("@google/genai");
 
-const ollama = new Ollama();
+const ollama = new Ollama({
+    host: process.env.OLLAMA_BASE_URL || "http://localhost:11434",
+});
 
 const gemini = new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY,
