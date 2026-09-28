@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-and-validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Validate backend
+        working-directory: backend
+        run: node --check src/server.js
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          VITE_API_URL: http://localhost:3000
+          VITE_SUPABASE_URL: https://example.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: ci-placeholder
+        run: npm run build
+
+      - name: Build backend Docker image
+        run: docker build -t rag-backend ./backend
+
+      - name: Build frontend Docker image
+        run: docker build \
+          --build-arg VITE_API_URL=http://localhost:3000 \
+          --build-arg VITE_SUPABASE_URL=https://example.supabase.co \
+          --build-arg VITE_SUPABASE_PUBLISHABLE_KEY=ci-placeholder \
+          -t rag-frontend ./frontend
