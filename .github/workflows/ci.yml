@@ -46,8 +46,9 @@ jobs:
         run: docker build -t rag-backend ./backend
 
       - name: Build frontend Docker image
-        run: docker build \
-          --build-arg VITE_API_URL=http://localhost:3000 \
-          --build-arg VITE_SUPABASE_URL=https://example.supabase.co \
-          --build-arg VITE_SUPABASE_PUBLISHABLE_KEY=ci-placeholder \
-          -t rag-frontend ./frontend
+        run: |
+          docker build \
+            --build-arg VITE_API_URL=http://localhost:3000 \
+            --build-arg VITE_SUPABASE_URL=https://example.supabase.co \
+            --build-arg VITE_SUPABASE_PUBLISHABLE_KEY=ci-placeholder \
+            -t rag-frontend ./frontend
