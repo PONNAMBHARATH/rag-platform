@@ -1,5 +1,6 @@
 import { FileText } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { signOut } from "../../services/auth.service";
 import {
@@ -17,6 +18,7 @@ const ConversationSidebar = ({
     const [conversations, setConversations] = useState([]);
     const [loading, setLoading] = useState(true);
     const { user } = useAuth();
+    const navigate = useNavigate();
 
     const loadConversations = async () => {
         try {
@@ -67,7 +69,7 @@ const ConversationSidebar = ({
         loadConversations();
     }, []);
     return (
-        <aside className="flex h-full w-72 flex-col border-r bg-white">
+        <aside className="flex h-full min-h-0 w-72 flex-col border-r bg-white">
 
             {/* Sidebar Header */}
             <div className="flex h-[81px] shrink-0 items-center justify-between border-b px-4">
@@ -85,7 +87,7 @@ const ConversationSidebar = ({
             </div>
 
             {/* Conversation List */}
-            <div className="flex-1 overflow-y-auto p-2">
+            <div className="min-h-0 flex-1 overflow-y-auto p-2">
                 {loading && (
                     <p className="px-3 py-4 text-sm text-gray-500">
                         Loading conversations...
@@ -183,6 +185,7 @@ const ConversationSidebar = ({
                     onClick={async () => {
                         try {
                             await signOut();
+                            navigate("/login");
                         } catch (error) {
                             console.error("Logout failed:", error);
                         }

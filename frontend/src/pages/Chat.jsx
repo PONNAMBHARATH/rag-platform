@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { apiRequest } from "../../services/api";
 import ConversationSidebar from "../components/ConversationSidebar";
 import DocumentPanel from "../components/DocumentPanel";
@@ -10,46 +11,72 @@ import {
 const Chat = () => {
     const [question, setQuestion] = useState("");
     const [messages, setMessages] = useState([]);
-    const [activeView, setActiveView] = useState("chat");
     const [loading, setLoading] = useState(false);
-    const [conversationId, setConversationId] = useState(null);
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
-    const messagesEndRef = useRef(null);
+    const { conversationId } = useParams();
+    const navigate = useNavigate();
+    const { pathname } = useLocation();
+    const activeView = pathname === "/documents" ? "documents" : "chat";
+    const messagesContainerRef = useRef(null);
 
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({
+        let isCurrent = true;
+
+        if (!conversationId) {
+            setMessages([]);
+            setLoading(false);
+            return () => {
+                isCurrent = false;
+            };
+        }
+
+        setLoading(true);
+        getConversationMessages(conversationId)
+            .then((result) => {
+                if (isCurrent) {
+                    setMessages(result.messages || []);
+                }
+            })
+            .catch((error) => {
+                if (isCurrent) {
+                    console.error("Failed to load conversation:", error);
+                }
+            })
+            .finally(() => {
+                if (isCurrent) {
+                    setLoading(false);
+                }
+            });
+
+        return () => {
+            isCurrent = false;
+        };
+    }, [conversationId]);
+
+    useEffect(() => {
+        const messagesContainer = messagesContainerRef.current;
+
+        messagesContainer?.scrollTo({
+            top: messagesContainer.scrollHeight,
             behavior: "smooth",
         });
     }, [messages, loading]);
 
-    const handleSelectConversation = async (selectedConversationId) => {
-        try {
-            setActiveView("chat");
-            setConversationId(selectedConversationId);
-            setLoading(true);
-
-            const result = await getConversationMessages(
-                selectedConversationId
-            );
-
-            setMessages(result.messages || []);
-            setSidebarOpen(false);
-        } catch (error) {
-            console.error(
-                "Failed to load conversation:",
-                error
-            );
-        } finally {
-            setLoading(false);
-        }
+    const handleSelectConversation = (selectedConversationId) => {
+        navigate(`/chat/${selectedConversationId}`);
+        setSidebarOpen(false);
     };
 
     const handleNewConversation = () => {
-        setActiveView("chat");
-        setConversationId(null);
+        navigate("/chat");
         setMessages([]);
         setQuestion("");
+        setSidebarOpen(false);
+    };
+
+    const handleOpenDocuments = () => {
+        navigate("/documents");
         setSidebarOpen(false);
     };
 
@@ -84,7 +111,6 @@ const Chat = () => {
                     question: userQuestion,
                 }),
             });
-            setConversationId(result.conversationId);
             setMessages((prev) => [
                 ...prev,
                 {
@@ -93,6 +119,7 @@ const Chat = () => {
                     sources: result.sources,
                 },
             ]);
+            navigate(`/chat/${result.conversationId}`);
         } catch (error) {
             console.error("Chat error:", error);
 
@@ -109,15 +136,15 @@ const Chat = () => {
     };
 
     return (
-        <div className="flex h-screen bg-gray-50">
+        <div className="flex h-dvh overflow-hidden bg-gray-50">
 
             {/* Desktop Sidebar */}
-            <div className="hidden h-full md:block">
+            <div className="hidden h-full shrink-0 md:block">
                 <ConversationSidebar
                     activeConversationId={conversationId}
                     onSelectConversation={handleSelectConversation}
                     onNewConversation={handleNewConversation}
-                    onOpenDocuments={() => setActiveView("documents")}
+                    onOpenDocuments={handleOpenDocuments}
                     activeView={activeView}
                 />
             </div>
@@ -152,7 +179,7 @@ const Chat = () => {
                                 activeConversationId={conversationId}
                                 onSelectConversation={handleSelectConversation}
                                 onNewConversation={handleNewConversation}
-                                onOpenDocuments={() => { setActiveView("documents"); setSidebarOpen(false); }}
+                                onOpenDocuments={handleOpenDocuments}
                                 activeView={activeView}
                             />
                         </div>
@@ -162,12 +189,14 @@ const Chat = () => {
             )}
 
             {/* Main Chat Area */}
-            <div className="flex min-w-0 flex-1 flex-col">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
 
                 {/* Main Content */}
-                <div className="flex min-w-0 flex-1 flex-col">
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                     {activeView === "documents" ? (
-                        <DocumentPanel />
+                        <DocumentPanel
+                            onOpenMenu={() => setSidebarOpen(true)}
+                        />
                     ) : (
                         <>
                             {/* Header */}
@@ -197,7 +226,7 @@ const Chat = () => {
                             </header>
 
                             {/* Existing Chat Area */}
-                            <main className="flex-1 overflow-y-auto px-4 py-6 md:px-6">
+                            <main ref={messagesContainerRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-6">
                                 <div className="mx-auto max-w-3xl space-y-6">
 
                                     {messages.length === 0 && (
@@ -276,9 +305,6 @@ const Chat = () => {
                                             </div>
                                         </div>
                                     )}
-
-                                    {/* Auto Scroll Target */}
-                                    <div ref={messagesEndRef} />
 
                                 </div>
                             </main>

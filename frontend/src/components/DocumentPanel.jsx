@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Trash2, Upload } from "lucide-react";
+import { Menu, Trash2, Upload } from "lucide-react";
 import {
     getDocuments,
     deleteDocument,
@@ -9,13 +9,48 @@ import {
 import DocumentFileIcon from "./DocumentFileIcon";
 import UploadDocumentDialog from "./UploadDocumentDialog";
 
-const DocumentPanel = () => {
+const DocumentHeader = ({ onOpenMenu, onUpload, uploadDisabled }) => (
+    <header className="flex shrink-0 items-center gap-3 border-b bg-white px-4 py-3 md:px-6 md:py-4">
+        {onOpenMenu && (
+            <button
+                type="button"
+                onClick={onOpenMenu}
+                aria-label="Open navigation"
+                className="grid size-10 shrink-0 place-items-center rounded-lg hover:bg-gray-100 md:hidden"
+            >
+                <Menu size={20} />
+            </button>
+        )}
+
+        <div className="min-w-0 flex-1">
+            <h2 className="truncate text-lg font-semibold text-gray-900">
+                Documents
+            </h2>
+            <p className="hidden text-sm text-gray-500 sm:block">
+                Manage your uploaded documents
+            </p>
+        </div>
+
+        <button
+            type="button"
+            onClick={onUpload}
+            disabled={uploadDisabled}
+            className="flex shrink-0 items-center gap-2 rounded-lg bg-black px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50 sm:px-4"
+        >
+            <Upload size={16} />
+            Upload
+        </button>
+    </header>
+);
+
+const DocumentPanel = ({ onOpenMenu }) => {
     const [documents, setDocuments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
     const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
     const [droppedFile, setDroppedFile] = useState(null);
+    const [deletingDoc, setDeletingDoc] = useState(false);
 
     const handleDragOver = (event) => {
         event.preventDefault();
@@ -49,7 +84,6 @@ const DocumentPanel = () => {
             setUploading(true);
 
             await uploadDocument(file);
-
             await loadDocuments();
 
             setUploadDialogOpen(false);
@@ -119,6 +153,8 @@ const DocumentPanel = () => {
             return;
         }
 
+        setDeletingDoc(true);
+
         try {
             await deleteDocument(documentId);
 
@@ -135,6 +171,8 @@ const DocumentPanel = () => {
             );
 
             alert("Failed to delete document.");
+        } finally {
+            setDeletingDoc(false);
         }
     };
 
@@ -177,7 +215,11 @@ const DocumentPanel = () => {
 
     const formatFileSize = (bytes) => {
         if (!bytes) {
-            return "0 KB";
+            return "0 B";
+        }
+
+        if (bytes < 1024) {
+            return `${bytes} B`;
         }
 
         const kb = bytes / 1024;
@@ -197,6 +239,11 @@ const DocumentPanel = () => {
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
             >
+                <DocumentHeader
+                    onOpenMenu={onOpenMenu}
+                    onUpload={() => setUploadDialogOpen(true)}
+                    uploadDisabled
+                />
                 <div className="p-6 text-sm text-gray-500">
                     Loading documents...
                 </div>
@@ -225,29 +272,11 @@ const DocumentPanel = () => {
                     </p>
                 </div>
             )}
-            {/* Header */}
-            <div className="flex shrink-0 items-center justify-between border-b px-6 py-4">
-                <div>
-                    <h2 className="text-lg font-semibold text-gray-900">
-                        Documents
-                    </h2>
-
-                    <p className="mt-1 text-sm text-gray-500">
-                        Manage your uploaded documents
-                    </p>
-                </div>
-
-                <div>
-                    <button
-                        type="button"
-                        onClick={() => setUploadDialogOpen(true)}
-                        className="flex items-center gap-2 rounded-lg bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
-                    >
-                        <Upload size={16} />
-                        Upload
-                    </button>
-                </div>
-            </div>
+            <DocumentHeader
+                onOpenMenu={onOpenMenu}
+                onUpload={() => setUploadDialogOpen(true)}
+                uploadDisabled={uploading}
+            />
 
             {/* Document list */}
             <div className="min-h-0 flex-1 overflow-y-auto p-6">
@@ -308,6 +337,7 @@ const DocumentPanel = () => {
                                             document.id
                                         )
                                     }
+                                    disabled={deletingDoc}
                                     className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-600"
                                     title="Delete document"
                                 >
