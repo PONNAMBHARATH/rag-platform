@@ -340,7 +340,16 @@ OLLAMA_MODEL=qwen2.5:7b
 
 GEMINI_API_KEY=your-gemini-api-key
 GEMINI_MODEL=your-gemini-model
+
+# Used when LLM_PROVIDER=ollama-cloud in production
+OLLAMA_CLOUD_BASE_URL=https://ollama.com
+OLLAMA_CLOUD_API_KEY=your-ollama-cloud-api-key
+OLLAMA_CLOUD_MODEL=gpt-oss:120b
 ```
+
+For local development, set `LLM_PROVIDER=ollama` to use the configured local
+Ollama URL and model. In production, set `LLM_PROVIDER=ollama-cloud` to use
+Ollama Cloud as the primary model; if it fails, requests fall back to Gemini.
 
 Start the backend:
 
