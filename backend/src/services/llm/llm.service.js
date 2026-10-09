@@ -53,6 +53,7 @@ const generateWithOllama = async ({
     question,
     context,
 }) => {
+    console.log("Generating answer with Ollama... - generateWithOllama");
     const response = await ollama.chat({
         model: OLLAMA_MODEL,
         messages: [
@@ -71,6 +72,7 @@ const generateWithOllamaCloud = async ({
     context,
 }) => {
     try {
+        console.log("Generating answer with Ollama Cloud... - generateWithOllamaCloud");
         if (!process.env.OLLAMA_CLOUD_API_KEY) {
             throw new Error("OLLAMA_CLOUD_API_KEY is required for Ollama Cloud");
         }
@@ -101,6 +103,7 @@ const generateWithGemini = async ({
     question,
     context,
 }) => {
+    console.log("Generating answer with Gemini... - generateWithGemini");
     const response = await gemini.models.generateContent({
         model: GEMINI_MODEL,
         contents: createPrompt({ question, context }),
