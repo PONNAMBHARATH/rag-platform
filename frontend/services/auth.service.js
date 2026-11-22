@@ -41,8 +41,26 @@ export const signInWithGoogle = async () => {
   return data;
 };
 
-export const signOut = async () => {
-  const { error } = await supabase.auth.signOut();
+export const requestPasswordReset = async (email) => {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/reset-password`,
+  });
+
+  if (error && error.code !== "user_not_found" && error.code !== "email_not_found") {
+    throw error;
+  }
+};
+
+export const updatePassword = async (password) => {
+  const { error } = await supabase.auth.updateUser({ password });
+
+  if (error) {
+    throw error;
+  }
+};
+
+export const signOut = async (options) => {
+  const { error } = await supabase.auth.signOut(options);
 
   if (error) {
     throw error;

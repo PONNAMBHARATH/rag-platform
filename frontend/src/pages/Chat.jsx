@@ -1,67 +1,120 @@
-import { useEffect, useRef, useState } from "react";
+import { Menu, X } from "lucide-react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { apiRequest } from "../../services/api";
+import AccountMenu from "../components/AccountMenu";
+import ChatComposer from "../components/ChatComposer";
+import ChatEmptyState from "../components/ChatEmptyState";
+import { MessageHistorySkeleton } from "../components/ChatHistorySkeleton";
 import ConversationSidebar from "../components/ConversationSidebar";
 import DocumentPanel from "../components/DocumentPanel";
+import { useConversations } from "../hooks/useConversations";
+import { useModalDialog } from "../hooks/useModalDialog";
+import { useWorkspaceViewport } from "../hooks/useWorkspaceViewport";
 import {
     getConversationMessages,
 } from "../../services/conversation.service";
 
 
+const ChatAnswer = lazy(() => import("../components/ChatAnswer"));
+
 const Chat = () => {
     const [question, setQuestion] = useState("");
     const [messages, setMessages] = useState([]);
-    const [loading, setLoading] = useState(false);
+    const [pendingMessage, setPendingMessage] = useState(null);
+    const [sendError, setSendError] = useState("");
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
+    const { conversations, loading: loadingConversations, loadError: conversationListError, refreshConversations, removeConversation } = useConversations();
     const { conversationId } = useParams();
+    const [newConversation, setNewConversation] = useState(null);
+    const [historyConversationId, setHistoryConversationId] = useState(conversationId);
+    const [historyStatus, setHistoryStatus] = useState(conversationId ? "loading" : "ready");
+    const hasNewConversation = newConversation !== null && newConversation.id === conversationId;
+    if (historyConversationId !== conversationId) {
+        setHistoryConversationId(conversationId);
+        setHistoryStatus(conversationId && !hasNewConversation ? "loading" : "ready");
+        setMessages(hasNewConversation ? newConversation.messages : []);
+        if (!hasNewConversation) setNewConversation(null);
+    }
+    const isLoadingConversation = historyStatus === "loading";
+
     const navigate = useNavigate();
-    const { pathname } = useLocation();
+    const { pathname, state, key: locationKey } = useLocation();
     const activeView = pathname === "/documents" ? "documents" : "chat";
+    const workspaceRef = useWorkspaceViewport();
+    const sidebarTriggerRef = useRef(null);
+    const sidebarDialogRef = useModalDialog(sidebarOpen, sidebarTriggerRef);
     const messagesContainerRef = useRef(null);
+    const questionInputRef = useRef(null);
+    const sendRequestRef = useRef(null);
+    const [composerLocationKey, setComposerLocationKey] = useState(locationKey);
+    if (composerLocationKey !== locationKey) {
+        setComposerLocationKey(locationKey);
+        setPendingMessage(null);
+        setSendError("");
+    }
+
+    const isSending = pendingMessage !== null;
+    const showEmptyState = !conversationId && !isLoadingConversation && !isSending && messages.length === 0;
+
+    useLayoutEffect(() => {
+        return () => {
+            sendRequestRef.current?.abort();
+            sendRequestRef.current = null;
+        };
+    }, [locationKey]);
 
     useEffect(() => {
+        if (!conversationId || hasNewConversation) return;
+
         let isCurrent = true;
-
-        if (!conversationId) {
-            setMessages([]);
-            setLoading(false);
-            return () => {
-                isCurrent = false;
-            };
-        }
-
-        setLoading(true);
         getConversationMessages(conversationId)
             .then((result) => {
-                if (isCurrent) {
-                    setMessages(result.messages || []);
-                }
+                if (!isCurrent) return;
+                setMessages(result.messages || []);
+                setHistoryStatus("ready");
             })
             .catch((error) => {
-                if (isCurrent) {
-                    console.error("Failed to load conversation:", error);
-                }
-            })
-            .finally(() => {
-                if (isCurrent) {
-                    setLoading(false);
-                }
+                if (!isCurrent) return;
+                console.error("Failed to load conversation:", error);
+                setHistoryStatus("failed");
             });
 
         return () => {
             isCurrent = false;
         };
-    }, [conversationId]);
+    }, [conversationId, hasNewConversation]);
 
     useEffect(() => {
+        if (showEmptyState || isLoadingConversation) return;
+
         const messagesContainer = messagesContainerRef.current;
 
         messagesContainer?.scrollTo({
             top: messagesContainer.scrollHeight,
             behavior: "smooth",
         });
-    }, [messages, loading]);
+    }, [messages, isLoadingConversation, isSending, showEmptyState]);
+
+    useEffect(() => {
+        if (!sidebarOpen) return;
+
+        const desktopViewport = window.matchMedia("(min-width: 48rem)");
+        const closeOnDesktop = () => {
+            if (desktopViewport.matches) setSidebarOpen(false);
+        };
+
+        desktopViewport.addEventListener("change", closeOnDesktop);
+        return () => {
+            desktopViewport.removeEventListener("change", closeOnDesktop);
+        };
+    }, [sidebarOpen]);
+
+    const openSidebar = () => {
+        sidebarTriggerRef.current?.focus({ preventScroll: true });
+        setSidebarOpen(true);
+    };
 
     const handleSelectConversation = (selectedConversationId) => {
         navigate(`/chat/${selectedConversationId}`);
@@ -72,7 +125,13 @@ const Chat = () => {
         navigate("/chat");
         setMessages([]);
         setQuestion("");
+        setSendError("");
         setSidebarOpen(false);
+    };
+
+    const handleDeleteConversation = async (id) => {
+        await removeConversation(id);
+        if (conversationId === id) handleNewConversation();
     };
 
     const handleOpenDocuments = () => {
@@ -80,113 +139,113 @@ const Chat = () => {
         setSidebarOpen(false);
     };
 
+    const handleQuestionChange = (draft) => {
+        setQuestion(draft);
+        setSendError("");
+    };
+
+    const handleSelectQuestion = (exampleQuestion) => {
+        handleQuestionChange(exampleQuestion);
+        questionInputRef.current?.focus();
+    };
+
     const handleSubmit = async (event) => {
         event.preventDefault();
 
-        if (!question.trim() || loading) {
-            return;
-        }
-
         const userQuestion = question.trim();
+        if (!userQuestion || isLoadingConversation || sendRequestRef.current) return;
 
-        setMessages((prev) => [
-            ...prev,
-            {
-                role: "user",
-                content: userQuestion,
-            },
-        ]);
-
-        setQuestion("");
-        setLoading(true);
+        const request = new AbortController();
+        sendRequestRef.current = request;
+        setSendError("");
+        const userMessage = { role: "user", content: userQuestion };
+        setPendingMessage(userMessage);
+        questionInputRef.current?.focus();
 
         try {
             const result = await apiRequest("/api/chat", {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    conversationId,
-                    question: userQuestion,
-                }),
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ conversationId, question: userQuestion }),
+                signal: request.signal,
             });
-            setMessages((prev) => [
-                ...prev,
-                {
-                    role: "assistant",
-                    content: result.answer,
-                    sources: result.sources,
-                },
-            ]);
-            navigate(`/chat/${result.conversationId}`);
-        } catch (error) {
-            console.error("Chat error:", error);
+            if (request.signal.aborted) return;
 
-            setMessages((prev) => [
-                ...prev,
-                {
-                    role: "assistant",
-                    content: "Sorry, something went wrong.",
-                },
-            ]);
+            const answerMessage = { role: "assistant", content: result.answer, sources: result.sources };
+            setQuestion("");
+            if (result.conversationId !== conversationId) {
+                refreshConversations();
+                setNewConversation({ id: result.conversationId, messages: [userMessage, answerMessage] });
+                navigate(`/chat/${result.conversationId}`);
+            } else {
+                setMessages((current) => [...current, userMessage, answerMessage]);
+            }
+        } catch (error) {
+            if (request.signal.aborted) return;
+
+            console.error("Chat error:", error);
+            setSendError("Couldn’t send your question. Try sending it again.");
         } finally {
-            setLoading(false);
+            if (sendRequestRef.current === request) {
+                sendRequestRef.current = null;
+                setPendingMessage(null);
+            }
         }
     };
 
-    return (
-        <div className="flex h-dvh overflow-hidden bg-gray-50">
+    const displayedMessages = pendingMessage ? [...messages, pendingMessage] : messages;
 
-            {/* Desktop Sidebar */}
+    const sidebarProps = {
+        conversations,
+        loading: loadingConversations,
+        loadError: conversationListError,
+        onDeleteConversation: handleDeleteConversation,
+        activeConversationId: conversationId,
+        activeView,
+        onSelectConversation: handleSelectConversation,
+        onNewConversation: handleNewConversation,
+        onOpenDocuments: handleOpenDocuments,
+    };
+
+    return (
+        <div ref={workspaceRef} className="flex h-[var(--workspace-height,100dvh)] overflow-hidden bg-gray-50">
+
             <div className="hidden h-full shrink-0 md:block">
-                <ConversationSidebar
-                    activeConversationId={conversationId}
-                    onSelectConversation={handleSelectConversation}
-                    onNewConversation={handleNewConversation}
-                    onOpenDocuments={handleOpenDocuments}
-                    activeView={activeView}
-                />
+                <ConversationSidebar {...sidebarProps} />
             </div>
 
-            {/* Mobile Sidebar Drawer */}
-            {sidebarOpen && (
-                <div className="fixed inset-0 z-50 md:hidden">
-
-                    {/* Overlay */}
-                    <div
-                        className="absolute inset-0 bg-black/40"
-                        onClick={() => setSidebarOpen(false)}
-                    />
-
-                    {/* Drawer */}
-                    <div className="relative flex h-full w-72 flex-col bg-white">
-
-                        {/* Close Button */}
-                        <div className="flex shrink-0 justify-end border-b p-3">
+            <dialog
+                ref={sidebarDialogRef}
+                aria-labelledby="mobile-navigation-title"
+                onCancel={(event) => {
+                    event.preventDefault();
+                    setSidebarOpen(false);
+                }}
+                onClick={(event) => {
+                    if (event.target === event.currentTarget) setSidebarOpen(false);
+                }}
+                className="fixed inset-y-0 left-0 m-0 h-[var(--workspace-height,100dvh)] max-h-none w-72 max-w-full overflow-hidden bg-white backdrop:bg-black/40"
+            >
+                {sidebarOpen && (
+                    <div className="flex h-full flex-col">
+                        <header className="flex shrink-0 items-center justify-between border-b border-gray-200 px-4 py-2">
+                            <h2 id="mobile-navigation-title" className="text-sm font-semibold text-gray-900">
+                                Navigation
+                            </h2>
                             <button
                                 type="button"
+                                autoFocus
+                                aria-label="Close navigation"
                                 onClick={() => setSidebarOpen(false)}
-                                className="rounded-lg px-3 py-2 text-sm hover:bg-gray-100"
+                                className="grid size-11 cursor-pointer place-items-center rounded-lg text-gray-700 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-gray-900"
                             >
-                                ✕
+                                <X size={20} aria-hidden="true" />
                             </button>
-                        </div>
-
-                        {/* Sidebar */}
-                        <div className="min-h-0 flex-1">
-                            <ConversationSidebar
-                                activeConversationId={conversationId}
-                                onSelectConversation={handleSelectConversation}
-                                onNewConversation={handleNewConversation}
-                                onOpenDocuments={handleOpenDocuments}
-                                activeView={activeView}
-                            />
-                        </div>
-
+                        </header>
+                        <ConversationSidebar {...sidebarProps} />
                     </div>
-                </div>
-            )}
+                )}
+            </dialog>
 
             {/* Main Chat Area */}
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -195,7 +254,9 @@ const Chat = () => {
                 <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                     {activeView === "documents" ? (
                         <DocumentPanel
-                            onOpenMenu={() => setSidebarOpen(true)}
+                            onOpenMenu={openSidebar}
+                            menuButtonRef={sidebarTriggerRef}
+                            initialUploadDialogOpen={state?.openUploadDialog === true}
                         />
                     ) : (
                         <>
@@ -206,13 +267,16 @@ const Chat = () => {
                                     {/* Mobile Menu Button */}
                                     <button
                                         type="button"
-                                        onClick={() => setSidebarOpen(true)}
-                                        className="rounded-lg p-2 hover:bg-gray-100 md:hidden"
+                                        ref={sidebarTriggerRef}
+                                        onClick={openSidebar}
+                                        aria-label="Open navigation"
+                                        aria-haspopup="dialog"
+                                        className="grid size-11 cursor-pointer place-items-center rounded-lg hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-gray-900 md:hidden"
                                     >
-                                        ☰
+                                        <Menu size={20} aria-hidden="true" />
                                     </button>
 
-                                    <div>
+                                    <div className="min-w-0 flex-1">
                                         <h1 className="text-xl font-semibold text-gray-900">
                                             RAG Platform
                                         </h1>
@@ -221,87 +285,42 @@ const Chat = () => {
                                             Chat with your documents
                                         </p>
                                     </div>
+                                    <AccountMenu />
 
                                 </div>
                             </header>
 
                             {/* Existing Chat Area */}
                             <main ref={messagesContainerRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-6">
+                                {showEmptyState && <ChatEmptyState onSelectQuestion={handleSelectQuestion} />}
                                 <div className="mx-auto max-w-3xl space-y-6">
 
-                                    {messages.length === 0 && (
-                                        <div className="py-20 text-center">
-                                            <h2 className="text-2xl font-semibold text-gray-800">
-                                                Ask your documents
-                                            </h2>
-
-                                            <p className="mt-2 text-gray-500">
-                                                Ask a question about your uploaded documents.
-                                            </p>
-                                        </div>
+                                    {isLoadingConversation && <MessageHistorySkeleton />}
+                                    {historyStatus === "failed" && (
+                                        <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                                            Couldn’t load this conversation. Refresh to try again.
+                                        </p>
                                     )}
 
-                                    {messages.map((message, index) => (
-                                        <div
-                                            key={index}
-                                            className={
-                                                message.role === "user"
-                                                    ? "flex justify-end"
-                                                    : "flex justify-start"
-                                            }
-                                        >
-                                            <div
-                                                className={
-                                                    message.role === "user"
-                                                        ? "max-w-[75%] rounded-2xl bg-black px-4 py-3 text-white"
-                                                        : "max-w-[75%] rounded-2xl border bg-white px-4 py-3 text-gray-800"
-                                                }
-                                            >
-                                                <p className="whitespace-pre-wrap">
+                                    {!isLoadingConversation && displayedMessages.map((message, index) => (
+                                        <div key={message.id ?? index} className={message.role === "user" ? "flex justify-end" : "flex justify-start"}>
+                                            {message.role === "user" ? (
+                                                <p className="max-w-[75%] rounded-2xl bg-gray-950 px-4 py-3 whitespace-pre-wrap wrap-anywhere text-white">
                                                     {message.content}
                                                 </p>
-
-                                                {/* Sources */}
-                                                {message.sources?.length > 0 && (
-                                                    <div className="mt-4 border-t pt-3">
-
-                                                        <p className="mb-2 text-xs font-semibold text-gray-500">
-                                                            Sources
-                                                        </p>
-
-                                                        <div className="space-y-2">
-                                                            {message.sources.map(
-                                                                (source, sourceIndex) => (
-                                                                    <div
-                                                                        key={sourceIndex}
-                                                                        className="rounded-lg bg-gray-50 px-3 py-2"
-                                                                    >
-                                                                        <p className="text-xs font-medium text-gray-700">
-                                                                            {source.fileName}
-                                                                        </p>
-
-                                                                        {source.snippet && (
-                                                                            <p className="mt-1 text-xs leading-relaxed text-gray-500">
-                                                                                {source.snippet}
-                                                                            </p>
-                                                                        )}
-                                                                    </div>
-                                                                )
-                                                            )}
-                                                        </div>
-
-                                                    </div>
-                                                )}
-
-                                            </div>
+                                            ) : (
+                                                <Suspense fallback={<p role="status" className="px-4 py-3 text-sm text-gray-600">Loading answer…</p>}>
+                                                    <ChatAnswer content={message.content} sources={message.sources} />
+                                                </Suspense>
+                                            )}
                                         </div>
                                     ))}
 
                                     {/* Loading */}
-                                    {loading && (
+                                    {isSending && (
                                         <div className="flex justify-start">
                                             <div className="rounded-2xl border bg-white px-4 py-3 text-sm text-gray-500">
-                                                Thinking...
+                                                Thinking…
                                             </div>
                                         </div>
                                     )}
@@ -309,34 +328,15 @@ const Chat = () => {
                                 </div>
                             </main>
 
-                            {/* Input */}
-                            <footer className="border-t bg-white px-4 py-4 md:px-6">
-                                <form
-                                    onSubmit={handleSubmit}
-                                    className="mx-auto flex max-w-3xl gap-3"
-                                >
-
-                                    <input
-                                        type="text"
-                                        value={question}
-                                        onChange={(event) =>
-                                            setQuestion(event.target.value)
-                                        }
-                                        placeholder="Ask a question about your documents..."
-                                        disabled={loading}
-                                        className="min-w-0 flex-1 rounded-xl border px-4 py-3 outline-none focus:border-gray-500"
-                                    />
-
-                                    <button
-                                        type="submit"
-                                        disabled={loading || !question.trim()}
-                                        className="rounded-xl bg-black px-5 py-3 font-medium text-white disabled:cursor-not-allowed disabled:opacity-40 md:px-6"
-                                    >
-                                        Send
-                                    </button>
-
-                                </form>
-                            </footer>
+                            <ChatComposer
+                                inputRef={questionInputRef}
+                                question={question}
+                                onQuestionChange={handleQuestionChange}
+                                onSubmit={handleSubmit}
+                                isLoadingConversation={isLoadingConversation}
+                                isSending={isSending}
+                                sendError={sendError}
+                            />
                         </>
                     )}
                 </div>

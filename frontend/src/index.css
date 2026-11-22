@@ -8,3 +8,56 @@ body {
   margin: 0;
   font-family: Inter, system-ui, sans-serif;
 }
+@layer components {
+  .chat-answer-content {
+    @apply space-y-3;
+  }
+
+  .chat-answer-content :where(h1, h2, h3, h4, h5, h6) {
+    @apply font-semibold text-gray-950;
+  }
+
+  .chat-answer-content :where(h1, h2) {
+    @apply text-lg leading-7;
+  }
+
+  .chat-answer-content :where(ul, ol) {
+    @apply space-y-1 pl-6;
+  }
+
+  .chat-answer-content ul {
+    @apply list-disc;
+  }
+
+  .chat-answer-content ol {
+    @apply list-decimal;
+  }
+
+  .chat-answer-content a {
+    @apply font-medium text-gray-950 underline underline-offset-2;
+  }
+
+  .chat-answer-content blockquote {
+    @apply border-l-2 border-gray-300 pl-3 text-gray-600;
+  }
+
+  .chat-answer-content pre {
+    @apply overflow-x-auto rounded-lg bg-gray-950 p-3 text-sm text-gray-100;
+  }
+
+  .chat-answer-content :not(pre) > code {
+    @apply rounded bg-gray-100 px-1 text-sm;
+  }
+
+  .chat-answer-content :where(th, td) {
+    @apply border-b border-gray-200 px-3 py-2 align-top;
+  }
+
+  .chat-answer-content th {
+    @apply bg-gray-50 font-semibold;
+  }
+
+  .chat-answer-content tbody tr:last-child td {
+    @apply border-b-0;
+  }
+}

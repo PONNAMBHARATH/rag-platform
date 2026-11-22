@@ -2,21 +2,12 @@ const qdrant = require("../../config/qdrant");
 
 const COLLECTION_NAME = "rag_platform_collection";
 
-const upsertChunk = async ({
-    id,
-    embedding,
-    payload,
-}) => {
-    await qdrant.upsert(COLLECTION_NAME, {
-        wait: true,
-        points: [
-            {
-                id,
-                vector: embedding,
-                payload,
-            },
-        ],
-    });
+const upsertChunkBatch = async (points) => {
+    await qdrant.upsert(COLLECTION_NAME, { wait: true, points });
+};
+
+const deleteChunkBatch = async (pointIds) => {
+    await qdrant.delete(COLLECTION_NAME, { wait: true, points: pointIds });
 };
 
 const deleteDocumentChunks = async (documentId) => {
@@ -36,6 +27,7 @@ const deleteDocumentChunks = async (documentId) => {
 };
 
 module.exports = {
-    upsertChunk,
+    upsertChunkBatch,
+    deleteChunkBatch,
     deleteDocumentChunks,
 };

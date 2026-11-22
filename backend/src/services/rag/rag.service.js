@@ -32,6 +32,9 @@ const generateRagAnswer = async ({
             documentId: result.payload.documentId,
             fileName: result.payload.fileName,
             snippet: result.payload.text.slice(0, 180),
+            ...(result.payload.spreadsheetLocation && {
+                spreadsheetLocation: result.payload.spreadsheetLocation,
+            }),
         }))
     };
 };

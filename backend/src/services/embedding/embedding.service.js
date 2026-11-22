@@ -1,16 +1,24 @@
 const { pipeline } = require("@huggingface/transformers");
 
-let embeddingPipeline = null;
+let embeddingPipelinePromise = null;
 
-const getEmbeddingPipeline = async () => {
-    if (!embeddingPipeline) {
-        embeddingPipeline = await pipeline(
+const getEmbeddingPipeline = () => {
+    if (!embeddingPipelinePromise) {
+        embeddingPipelinePromise = pipeline(
             "feature-extraction",
             "Xenova/all-MiniLM-L6-v2"
-        );
+        ).catch((error) => {
+            embeddingPipelinePromise = null;
+            throw error;
+        });
     }
 
-    return embeddingPipeline;
+    return embeddingPipelinePromise;
+};
+
+const getEmbeddingTokenizer = async () => {
+    const extractor = await getEmbeddingPipeline();
+    return extractor.tokenizer;
 };
 
 const generateEmbedding = async (text) => {
@@ -26,4 +34,5 @@ const generateEmbedding = async (text) => {
 
 module.exports = {
     generateEmbedding,
+    getEmbeddingTokenizer,
 };

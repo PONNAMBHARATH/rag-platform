@@ -1,6 +1,5 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useLayoutEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { getCurrentUser } from "../../services/auth.service";
 
 const AuthContext = createContext();
 
@@ -8,24 +7,20 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const initializeAuth = async () => {
-      try {
-        const currentUser = await getCurrentUser();
-        setUser(currentUser);
-      } catch (error) {
-        console.error("Failed to initialize auth:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const [recoveryUserId, setRecoveryUserId] = useState(null);
 
-    initializeAuth();
-
+  useLayoutEffect(() => {
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      const sessionUser = session?.user ?? null;
+      setUser(sessionUser);
+      if (event === "PASSWORD_RECOVERY") {
+        setRecoveryUserId(sessionUser?.id ?? null);
+      } else {
+        setRecoveryUserId((current) => current === sessionUser?.id ? current : null);
+      }
+      setLoading(false);
     });
 
     return () => {
@@ -34,7 +29,7 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading }}>
+    <AuthContext.Provider value={{ user, loading, isRecoverySession: recoveryUserId !== null && recoveryUserId === user?.id }}>
       {children}
     </AuthContext.Provider>
   );

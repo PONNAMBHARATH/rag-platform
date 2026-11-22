@@ -6,18 +6,23 @@ const {
 } = require("./document.service");
 
 const { cleanText } = require("./text-cleaning.service");
+const { chunkWorkbookRows } = require("./xlsx-chunking.service");
 const { chunkText } = require("./chunking.service");
 const {
     generateEmbedding,
+    getEmbeddingTokenizer,
 } = require("../embedding/embedding.service");
 
 const {
-    upsertChunk,
+    upsertChunkBatch,
+    deleteChunkBatch,
 } = require("../vector/qdrant.service");
 
 const {
     downloadDocumentFile,
 } = require("../storage/storage.service");
+
+const INDEX_BATCH_SIZE = 32;
 
 const createUserSupabaseClient = (token) => {
     return createClient(
@@ -60,6 +65,7 @@ const processDocument = async ({
     token,
 }) => {
     const userSupabase = createUserSupabaseClient(token);
+    const attemptedPointBatches = [];
 
     try {
         const { data: document, error } = await userSupabase
@@ -97,8 +103,6 @@ const processDocument = async ({
             mimetype: document.file_type,
         });
 
-        const cleanedText = cleanText(extractedDocument.text);
-
         await updateDocumentStatus({
             userSupabase,
             documentId,
@@ -107,7 +111,9 @@ const processDocument = async ({
             processingStage: "chunking",
         });
 
-        const chunks = chunkText(cleanedText);
+        const chunks = extractedDocument.worksheets
+            ? chunkWorkbookRows(extractedDocument.worksheets, await getEmbeddingTokenizer())
+            : chunkText(cleanText(extractedDocument.text));
 
         await updateDocumentStatus({
             userSupabase,
@@ -117,22 +123,28 @@ const processDocument = async ({
             processingStage: "embedding",
         });
 
-        for (const chunk of chunks) {
-            const embedding = await generateEmbedding(chunk.text);
-            const pointId = crypto.randomUUID();
+        for (let offset = 0; offset < chunks.length; offset += INDEX_BATCH_SIZE) {
+            const points = [];
 
-            await upsertChunk({
-                id: pointId,
-                embedding,
-                payload: {
-                    userId,
-                    documentId,
-                    fileName: document.file_name,
-                    chunkIndex: chunk.chunkIndex,
-                    text: chunk.text,
-                    visibility: "private",
-                },
-            });
+            for (const chunk of chunks.slice(offset, offset + INDEX_BATCH_SIZE)) {
+                points.push({
+                    id: crypto.randomUUID(),
+                    vector: await generateEmbedding(chunk.text),
+                    payload: {
+                        userId,
+                        documentId,
+                        fileName: document.file_name,
+                        chunkIndex: chunk.chunkIndex,
+                        text: chunk.text,
+                        visibility: "private",
+                        ...(chunk.spreadsheetLocation && { spreadsheetLocation: chunk.spreadsheetLocation }),
+                    },
+                });
+            }
+
+            // A failed or timed-out write may still have reached Qdrant.
+            attemptedPointBatches.push(points.map(({ id }) => id));
+            await upsertChunkBatch(points);
         }
 
         await updateDocumentStatus({
@@ -150,6 +162,14 @@ const processDocument = async ({
             chunks,
         };
     } catch (error) {
+        for (const pointIds of attemptedPointBatches) {
+            try {
+                await deleteChunkBatch(pointIds);
+            } catch (cleanupError) {
+                console.error("Failed to remove vectors from a failed indexing attempt:", cleanupError);
+            }
+        }
+
         try {
             await updateDocumentStatus({
                 userSupabase,

@@ -20,6 +20,7 @@ const createMessage = async ({
     token,
     role,
     content,
+    sources,
 }) => {
     const userSupabase = createUserSupabaseClient(token);
 
@@ -30,6 +31,7 @@ const createMessage = async ({
             user_id: userId,
             role,
             content,
+            ...(sources !== undefined && { sources }),
         })
         .select()
         .single();
@@ -46,7 +48,7 @@ const getMessages = async ({ conversationId, userId, token }) => {
 
     const { data, error } = await userSupabase
         .from("messages")
-        .select("id, role, content, created_at")
+        .select("id, role, content, created_at, sources")
         .eq("conversation_id", conversationId)
         .eq("user_id", userId)
         .order("created_at", { ascending: true });

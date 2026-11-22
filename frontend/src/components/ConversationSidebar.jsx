@@ -1,100 +1,60 @@
-import { FileText } from "lucide-react";
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
-import { signOut } from "../../services/auth.service";
-import {
-    getConversations,
-    deleteConversation,
-} from "../../services/conversation.service";
+import { FileText, Plus, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { ConversationListSkeleton } from "./ChatHistorySkeleton";
+import DeleteConfirmationDialog from "./DeleteConfirmationDialog";
+
+const focusClass = "cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900";
+const navActionClass = `flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-medium ${focusClass}`;
 
 const ConversationSidebar = ({
+    conversations,
+    loading,
+    loadError,
+    onDeleteConversation,
     activeConversationId,
     onSelectConversation,
     onNewConversation,
     onOpenDocuments,
     activeView,
 }) => {
-    const [conversations, setConversations] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const { user } = useAuth();
-    const navigate = useNavigate();
+    const [conversationToDelete, setConversationToDelete] = useState(null);
 
-    const loadConversations = async () => {
-        try {
-            const result = await getConversations();
-            setConversations(result.conversations || []);
-        } catch (error) {
-            console.error("Failed to load conversations:", error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleDeleteConversation = async (conversationId) => {
-        const confirmed = window.confirm(
-            "Are you sure you want to delete this conversation?"
-        );
-
-        if (!confirmed) {
-            return;
-        }
-
-        try {
-            await deleteConversation(conversationId);
-
-            // Remove deleted conversation from local sidebar state
-            setConversations((prev) =>
-                prev.filter(
-                    (conversation) =>
-                        conversation.id !== conversationId
-                )
-            );
-
-            // If the deleted conversation is currently open
-            if (activeConversationId === conversationId) {
-                onNewConversation();
-            }
-        } catch (error) {
-            console.error(
-                "Failed to delete conversation:",
-                error
-            );
-
-            alert("Failed to delete conversation.");
-        }
-    };
-
-    useEffect(() => {
-        loadConversations();
-    }, []);
     return (
-        <aside className="flex h-full min-h-0 w-72 flex-col border-r bg-white">
-
-            {/* Sidebar Header */}
-            <div className="flex h-[81px] shrink-0 items-center justify-between border-b px-4">
-                <h2 className="font-semibold text-gray-900">
-                    Conversations
-                </h2>
-
+        <nav aria-label="Workspace" className="flex h-full min-h-0 w-full flex-col border-r border-gray-200 bg-white md:w-72">
+            <div className="shrink-0 space-y-2 border-b border-gray-200 p-3">
                 <button
                     type="button"
                     onClick={onNewConversation}
-                    className="rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                    className={`${navActionClass} bg-gray-950 text-white hover:bg-gray-800`}
                 >
-                    + New
+                    <Plus size={18} aria-hidden="true" />
+                    New chat
+                </button>
+                <button
+                    type="button"
+                    onClick={onOpenDocuments}
+                    aria-current={activeView === "documents" ? "page" : undefined}
+                    className={`${navActionClass} text-gray-700 hover:bg-gray-100 aria-[current=page]:bg-gray-200 aria-[current=page]:font-semibold aria-[current=page]:text-gray-950`}
+                >
+                    <FileText size={18} aria-hidden="true" />
+                    Documents
                 </button>
             </div>
 
-            {/* Conversation List */}
-            <div className="min-h-0 flex-1 overflow-y-auto p-2">
-                {loading && (
-                    <p className="px-3 py-4 text-sm text-gray-500">
-                        Loading conversations...
+            <h2 className="px-4 pb-2 pt-4 text-sm font-semibold text-gray-700">
+                Conversations
+            </h2>
+            <p role="status" className="sr-only">{loading && "Loading conversations…"}</p>
+            <div aria-busy={loading} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+                {loading && <ConversationListSkeleton />}
+
+                {loadError && (
+                    <p role="status" className="px-3 py-4 text-sm text-gray-600">
+                        Couldn’t refresh conversations. Reload the page to try again.
                     </p>
                 )}
 
-                {!loading && conversations.length === 0 && (
+                {!loading && !loadError && conversations.length === 0 && (
                     <p className="px-3 py-4 text-sm text-gray-500">
                         No conversations yet.
                     </p>
@@ -104,10 +64,7 @@ const ConversationSidebar = ({
                     conversations.map((conversation) => (
                         <div
                             key={conversation.id}
-                            className={`group mb-1 flex items-center rounded-lg ${activeConversationId === conversation.id
-                                ? "bg-gray-100"
-                                : "hover:bg-gray-50"
-                                }`}
+                            className="mb-1 flex items-center rounded-lg hover:bg-gray-50 has-[[aria-current=page]]:bg-gray-200"
                         >
                             {/* Conversation */}
                             <button
@@ -115,7 +72,8 @@ const ConversationSidebar = ({
                                 onClick={() =>
                                     onSelectConversation(conversation.id)
                                 }
-                                className="min-w-0 flex-1 px-3 py-3 text-left text-sm"
+                                aria-current={activeView === "chat" && activeConversationId === conversation.id ? "page" : undefined}
+                                className={`min-w-0 flex-1 rounded-lg px-3 py-3 text-left text-sm ${focusClass}`}
                             >
                                 <div
                                     className={`truncate ${activeConversationId === conversation.id
@@ -126,7 +84,7 @@ const ConversationSidebar = ({
                                     {conversation.title}
                                 </div>
 
-                                <div className="mt-1 text-xs text-gray-400">
+                                <div className="mt-1 text-xs text-gray-600">
                                     {new Date(
                                         conversation.updated_at
                                     ).toLocaleDateString()}
@@ -137,66 +95,26 @@ const ConversationSidebar = ({
                             <button
                                 type="button"
                                 onClick={() =>
-                                    handleDeleteConversation(conversation.id)
+                                    setConversationToDelete(conversation)
                                 }
-                                className="mr-2 rounded-md px-2 py-1 text-gray-400 opacity-0 transition group-hover:opacity-100 hover:bg-gray-200 hover:text-red-600"
+                                className={`mr-1 grid size-11 shrink-0 place-items-center rounded-lg text-gray-600 hover:bg-white hover:text-red-700 ${focusClass}`}
+                                aria-label={`Delete conversation: ${conversation.title}`}
                                 title="Delete conversation"
                             >
-                                ⋮
+                                <Trash2 size={16} aria-hidden="true" />
                             </button>
                         </div>
                     ))}
             </div>
-            <div className="shrink-0 border-t p-3">
-                <button
-                    type="button"
-                    onClick={onOpenDocuments}
-                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium ${activeView === "documents"
-                            ? "bg-gray-100 text-gray-900"
-                            : "text-gray-700 hover:bg-gray-100"
-                        }`}
-                >
-                    <FileText size={18} />
-                    <span>Documents</span>
-                </button>
-            </div>
-
-            {/* User Section */}
-            <div className="shrink-0 border-t p-3">
-
-                <div className="mb-2 flex items-center gap-3 rounded-lg px-2 py-2">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-200 text-sm font-semibold text-gray-700">
-                        {user?.email?.charAt(0).toUpperCase()}
-                    </div>
-
-                    <div className="min-w-0">
-                        <p className="text-sm font-medium text-gray-900">
-                            {user?.email}
-                        </p>
-
-                        <p className="text-xs text-gray-500">
-                            Signed in
-                        </p>
-                    </div>
-                </div>
-
-                <button
-                    type="button"
-                    onClick={async () => {
-                        try {
-                            await signOut();
-                            navigate("/login");
-                        } catch (error) {
-                            console.error("Logout failed:", error);
-                        }
-                    }}
-                    className="w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-gray-700 hover:bg-gray-100"
-                >
-                    Log out
-                </button>
-
-            </div>
-        </aside>
+            {conversationToDelete && (
+                <DeleteConfirmationDialog
+                    title="Delete conversation?"
+                    description={`“${conversationToDelete.title}” and its messages will be permanently deleted.`}
+                    onCancel={() => setConversationToDelete(null)}
+                    onDelete={() => onDeleteConversation(conversationToDelete.id)}
+                />
+            )}
+        </nav>
     );
 };
 

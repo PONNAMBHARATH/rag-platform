@@ -107,6 +107,7 @@ router.post("/", authMiddleware, async (req, res) => {
             token,
             role: "assistant",
             content: result.answer,
+            sources: result.sources,
         });
 
         // 5. Return response
