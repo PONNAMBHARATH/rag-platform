@@ -62,7 +62,7 @@ const getCellText = (cell) => {
     return cell.text.replace(/\s+/g, " ").trim();
 };
 
-const extractXlsxText = async (buffer) => {
+const extractXlsxText = async (buffer, { includePreview = false } = {}) => {
     await validateWorkbookArchive(buffer);
 
     const workbook = new ExcelJS.Workbook();
@@ -73,6 +73,7 @@ const extractXlsxText = async (buffer) => {
     }
 
     const worksheets = [];
+    const previewSheets = [];
     const lines = [];
     let rowCount = 0;
     let cellCount = 0;
@@ -82,6 +83,8 @@ const extractXlsxText = async (buffer) => {
         if (worksheet.state !== "visible") continue;
 
         const rows = [];
+        const previewRows = [];
+        const previewColumns = new Map();
         let headers;
         worksheet.eachRow((row, rowNumber) => {
             rowCount++;
@@ -109,12 +112,32 @@ const extractXlsxText = async (buffer) => {
             if (textLength > MAX_TEXT_LENGTH) throw new Error("The workbook exceeds the extracted text limit.");
             lines.push(line);
             rows.push({ rowNumber, text });
+            if (includePreview && previewRows.length < 50) {
+                const valuesByColumn = {};
+                for (const { columnNumber, label, value } of cells) {
+                    if (!previewColumns.has(columnNumber) && previewColumns.size < 20) {
+                        previewColumns.set(columnNumber, (headers.get(columnNumber) || label).slice(0, 120));
+                    }
+                    if (previewColumns.has(columnNumber)) valuesByColumn[columnNumber] = value.slice(0, 240);
+                }
+                previewRows.push({ rowNumber, values: valuesByColumn });
+            }
         });
-        if (rows.length) worksheets.push({ sheetName: worksheet.name, rows });
+        if (rows.length) {
+            worksheets.push({ sheetName: worksheet.name, rows });
+            if (includePreview) {
+                previewSheets.push({
+                    sheetName: worksheet.name,
+                    columns: [...previewColumns].sort(([left], [right]) => left - right),
+                    rows: previewRows,
+                    rowCount: rows.length,
+                });
+            }
+        }
     }
 
     if (!lines.length) throw new Error("No Excel data rows found after the header rows.");
-    return { text: lines.join("\n"), worksheets };
+    return { text: lines.join("\n"), worksheets, ...(includePreview && { previewSheets }) };
 };
 
 module.exports = { XLSX_MIME_TYPE, extractXlsxText };

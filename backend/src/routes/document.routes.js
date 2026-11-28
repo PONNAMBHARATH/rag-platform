@@ -11,7 +11,12 @@ const {
 } = require("../services/document/document-processing.service");
 const {
     uploadDocumentFile,
+    downloadDocumentFile,
 } = require("../services/storage/storage.service");
+const { extractDocumentText } = require("../services/document/document.service");
+const { XLSX_MIME_TYPE, extractXlsxText } = require("../services/document/xlsx.service");
+const DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const previewFileTypes = new Set(["application/pdf", "text/plain", DOCX_MIME_TYPE, XLSX_MIME_TYPE]);
 const upload = require("../middleware/upload.middleware");
 
 
@@ -139,11 +144,9 @@ router.post(
 
             return res.json({
                 success: true,
-                message: "File uploaded and indexed successfully",
+                message: "File uploaded and processing started",
                 document: {
                     ...data,
-                    status: "ready",
-                    processing_stage: null,
                     storage_path: storagePath,
                 },
             });
@@ -231,6 +234,43 @@ router.get("/:documentId", authMiddleware, async (req, res) => {
             success: false,
             message: "Failed to fetch document",
         });
+    }
+});
+
+router.get("/:documentId/preview", authMiddleware, async (req, res) => {
+    res.set("Cache-Control", "private, no-store");
+    try {
+        const token = getTokenFromRequest(req);
+        const document = await getDocument({
+            documentId: req.params.documentId,
+            userId: req.user.id,
+            token,
+        });
+
+        if (!document?.storage_path) return res.status(404).json({ message: "Document not found" });
+        if (document.status !== "ready") return res.status(409).json({ message: "Preview is available once the document is ready to chat." });
+
+        const mimetype = document.file_type;
+        if (!previewFileTypes.has(mimetype)) return res.status(415).json({ message: "This file type has no preview." });
+
+        const buffer = await downloadDocumentFile({ storagePath: document.storage_path, token });
+
+        if (req.query.download === "1" || mimetype === "application/pdf" || mimetype === "text/plain") {
+            res.attachment(document.file_name);
+            res.set("X-Content-Type-Options", "nosniff");
+            return res.type(mimetype).send(buffer);
+        }
+
+        if (mimetype === XLSX_MIME_TYPE) {
+            const { previewSheets } = await extractXlsxText(buffer, { includePreview: true });
+            return res.json({ sheets: previewSheets });
+        }
+
+        const { text } = await extractDocumentText({ buffer, mimetype });
+        return res.json({ text: text.slice(0, 50_000), truncated: text.length > 50_000 });
+    } catch (error) {
+        console.error("Document preview error:", error);
+        return res.status(500).json({ message: "Couldn’t open the document preview." });
     }
 });
 

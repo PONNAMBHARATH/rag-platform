@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, CircleAlert, CircleCheck, LoaderCircle, Menu, Trash2, Upload } from "lucide-react";
+import { ArrowLeft, CircleAlert, CircleCheck, Eye, LoaderCircle, Menu, Trash2, Upload } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
     getDocuments,
@@ -12,6 +12,7 @@ import { formatFileSize } from "../lib/formatFileSize";
 import AccountMenu from "./AccountMenu";
 import DeleteConfirmationDialog from "./DeleteConfirmationDialog";
 import DocumentFileIcon from "./DocumentFileIcon";
+import DocumentPreviewDialog from "./DocumentPreviewDialog";
 import UploadDocumentDialog from "./UploadDocumentDialog";
 
 const documentRowClass = "flex items-center gap-4 rounded-xl border border-gray-200 bg-white p-4";
@@ -113,6 +114,7 @@ const DocumentPanel = ({ onOpenMenu, menuButtonRef, initialUploadDialogOpen = fa
     const [isDragging, setIsDragging] = useState(false);
     const [droppedFile, setDroppedFile] = useState(null);
     const [documentToDelete, setDocumentToDelete] = useState(null);
+    const [previewDocument, setPreviewDocument] = useState(null);
 
     const uploadButtonRef = useRef(null);
     const initialDocumentsRequestRef = useRef(null);
@@ -283,20 +285,38 @@ const DocumentPanel = ({ onOpenMenu, menuButtonRef, initialUploadDialogOpen = fa
                                     )}
                                 </div>
 
-                                <button
-                                    type="button"
-                                    onClick={() => setDocumentToDelete(document)}
-                                    aria-label={`Delete document: ${document.file_name}`}
-                                    className="cursor-pointer rounded-lg p-2 text-gray-600 hover:bg-red-50 hover:text-red-700 focus-visible:outline-2 focus-visible:outline-gray-900"
-                                    title="Delete document"
-                                >
-                                    <Trash2 size={18} />
-                                </button>
+                                <div className="flex shrink-0 items-center">
+                                    {document.status === "ready" && (
+                                        <button
+                                            type="button"
+                                            onClick={(event) => {
+                                                event.currentTarget.focus({ preventScroll: true });
+                                                setPreviewDocument(document);
+                                            }}
+                                            aria-label={`Preview document: ${document.file_name}`}
+                                            aria-haspopup="dialog"
+                                            className="grid size-11 cursor-pointer place-items-center rounded-lg text-gray-600 hover:bg-gray-100 hover:text-gray-950 focus-visible:outline-2 focus-visible:outline-gray-900"
+                                            title="Preview document"
+                                        >
+                                            <Eye size={18} aria-hidden="true" />
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => setDocumentToDelete(document)}
+                                        aria-label={`Delete document: ${document.file_name}`}
+                                        className="cursor-pointer rounded-lg p-2 text-gray-600 hover:bg-red-50 hover:text-red-700 focus-visible:outline-2 focus-visible:outline-gray-900"
+                                        title="Delete document"
+                                    >
+                                        <Trash2 size={18} />
+                                    </button>
+                                </div>
                             </div>
                         ))}
                     </div>
                 )}
             </div>
+            {previewDocument && <DocumentPreviewDialog document={previewDocument} onClose={() => setPreviewDocument(null)} />}
             {documentToDelete && (
                 <DeleteConfirmationDialog
                     title="Delete document?"

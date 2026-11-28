@@ -16,7 +16,7 @@ export const getProtectedProfile = async () => {
   return apiRequest("/api/protected/profile");
 };
 
-export const apiRequest = async (endpoint, options = {}) => {
+export const apiRequest = async (endpoint, options = {}, decode = (response) => response.json()) => {
   const token = await getAccessToken();
 
   if (!token) {
@@ -39,5 +39,5 @@ export const apiRequest = async (endpoint, options = {}) => {
     );
   }
 
-  return response.json();
+  return decode(response);
 };

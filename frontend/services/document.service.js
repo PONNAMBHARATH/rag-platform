@@ -29,3 +29,10 @@ export const uploadDocument = async (file) => {
         body: formData,
     });
 };
+
+export const getDocumentPreview = (documentId, { signal, binary = false, download = false } = {}) =>
+    apiRequest(
+        `/api/protected/documents/${encodeURIComponent(documentId)}/preview${download ? "?download=1" : ""}`,
+        { signal },
+        binary || download ? (response) => response.blob() : undefined,
+    );
